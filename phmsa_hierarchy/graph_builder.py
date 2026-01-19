@@ -288,3 +288,4 @@ class HierarchyGraphBuilder:
             "avg_children_per_parent": total_edges / len(roots) if roots else 0
         }
 
+

@@ -41,3 +41,4 @@ MAX_HIERARCHY_DEPTH = 5
 # Graph settings
 DETECT_CYCLES = True
 
+

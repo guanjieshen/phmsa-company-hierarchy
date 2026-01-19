@@ -208,3 +208,4 @@ class ParentCandidateFinder:
             "avg_confidence": sum(c["confidence"] for c in candidates) / len(candidates) if candidates else 0
         }
 
+
