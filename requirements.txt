@@ -1,0 +1,17 @@
+# PHMSA Company Hierarchy Analysis
+# Requirements for Databricks environment
+
+# Core dependencies
+langgraph>=0.0.25
+langchain-community>=0.0.20
+duckduckgo-search>=4.0.0
+pandas>=1.5.0
+
+# Databricks-specific (pre-installed, listed for reference)
+# pyspark>=3.4.0
+# databricks-sql-connector>=2.0.0
+
+# Optional for local development
+# jupyter>=1.0.0
+# notebook>=6.5.0
+
