@@ -280,22 +280,28 @@ Return ONLY valid JSON:
                 - acquisition_date: Year of acquisition if recent (or None)
                 - recent_change: Boolean flag for recent ownership changes
         """
-        # Perform web search with recency focus
+        # Perform web search with multiple strategies
         try:
-            # Primary search with recency keywords
-            search_query = f"{company_name} parent company owner corporate structure 2024 2025 2026 current"
+            # Strategy 1: Basic company search (often reveals ownership in first result)
+            search_query_basic = f"{company_name}"
             if operator_id:
-                search_query += f" PHMSA operator {operator_id}"
-            if address:
-                search_query += f" {address}"
+                search_query_basic += f" PHMSA {operator_id}"
             
-            search_results = self.search_tool.run(search_query)
+            basic_results = self.search_tool.run(search_query_basic)
             
-            # Additional recency search if signs of recent changes
+            # Strategy 2: Explicit parent/owner search
+            search_query_parent = f"{company_name} parent company owner subsidiary"
+            parent_results = self.search_tool.run(search_query_parent)
+            
+            # Combine results
+            search_results = f"=== Basic Company Information ===\n{basic_results}\n\n"
+            search_results += f"=== Ownership & Parent Company Search ===\n{parent_results}"
+            
+            # Strategy 3: Recency search if signs of recent changes
             recency_keywords = ["acquired", "merger", "sold", "acquisition", "bought by"]
             if any(keyword in search_results.lower() for keyword in recency_keywords):
                 recency_search = self.search_tool.run(
-                    f"{company_name} acquisition merger 2024 2025 2026 current owner parent"
+                    f"{company_name} acquisition merger 2024 2025 2026 current owner"
                 )
                 search_results += f"\n\n=== Recent Ownership Changes ===\n{recency_search}"
                 
@@ -327,17 +333,35 @@ Return ONLY valid JSON:
             reasoning = data.get("reasoning", "No reasoning provided")
             acquisition_date = data.get("acquisition_date", None)
             
-            # Validate parent exists in PHMSA dataset (case-insensitive)
+            # Validate parent exists in PHMSA dataset (case-insensitive, flexible matching)
             if parent not in ["ULTIMATE", "UNKNOWN", "ERROR"]:
                 # Check if parent exists in available companies
                 parent_found = False
+                matched_company = None
+                
+                # Strategy 1: Exact case-insensitive match
                 for company in self.available_companies:
                     if parent.upper() == company.upper():
-                        parent = company  # Use exact match from dataset
+                        matched_company = company
                         parent_found = True
                         break
                 
+                # Strategy 2: Partial match if exact not found (e.g., "United Refining" matches "United Refining Company")
                 if not parent_found:
+                    parent_upper = parent.upper()
+                    for company in self.available_companies:
+                        company_upper = company.upper()
+                        # Check if parent name is contained in company name or vice versa
+                        if (parent_upper in company_upper and len(parent_upper) > 10) or \
+                           (company_upper in parent_upper and len(company_upper) > 10):
+                            matched_company = company
+                            parent_found = True
+                            reasoning = f"Matched '{parent}' to PHMSA company '{company}'. " + reasoning
+                            break
+                
+                if parent_found:
+                    parent = matched_company  # Use exact match from dataset
+                else:
                     # Parent not in PHMSA dataset
                     reasoning = f"Identified parent '{parent}' not found in PHMSA dataset. " + reasoning
                     parent = "ULTIMATE"
@@ -413,14 +437,29 @@ Task: Determine the immediate corporate parent of this company using web search.
 {context}
 
 Web Search Results (PRIORITIZE 2024-2026 INFORMATION):
-{search_results[:4000]}
+{search_results[:6000]}
 
-CRITICAL INSTRUCTIONS - RECENCY VALIDATION:
-1. PRIORITIZE information from 2024-2026 (current ownership as of January 2026)
-2. Look for recent acquisitions, mergers, spin-offs, sales
-3. If ownership changed recently (2024+), use CURRENT parent not historical
-4. Flag recent changes with acquisition year in response
-5. Indicators: "acquired in 2024", "merged in 2025", "sold to", "currently owned by", "as of 2024"
+CRITICAL INSTRUCTIONS - OWNERSHIP IDENTIFICATION:
+1. LOOK FOR OWNERSHIP INDICATORS in the search results:
+   - "owned by [Company]"
+   - "subsidiary of [Company]"
+   - "division of [Company]"
+   - "operates for [Company]"
+   - "delivers to [Company]" (may indicate ownership if company operates on behalf of another)
+   - "[Company] operates [this pipeline]"
+   - "acquired by [Company]"
+   - "[Company]'s [this pipeline/subsidiary]"
+   - "part of [Company]"
+
+2. OWNERSHIP CAN BE IMPLIED from operational relationships:
+   - If Company A operates a pipeline that exclusively serves Company B, B may own A
+   - If search mentions "[Company] Pipeline Corporation" as part of a larger system, look for the system owner
+   - If pipeline description mentions delivering to a specific refinery/company, that company may be the owner
+
+3. RECENCY VALIDATION:
+   - Prioritize information from 2024-2026 (current ownership as of January 2026)
+   - If ownership changed recently (2024+), use CURRENT parent not historical
+   - Indicators: "acquired in 2024", "merged in 2025", "sold to", "currently owned by"
 
 PHMSA Dataset Constraint:
 The parent company MUST exist in the PHMSA pipeline operator dataset ({len(available_companies)} companies total).
@@ -429,26 +468,33 @@ Sample of companies in PHMSA dataset:
 {company_list_sample}
 
 Validation Rules:
-1. Based on web search, identify the immediate corporate parent
+1. CAREFULLY analyze search results for ANY ownership indicators (explicit or implied)
 2. The parent MUST be a company that operates pipelines in the US (likely in PHMSA dataset)
-3. If parent identified from web search appears to be in PHMSA dataset, return that name
-4. If web parent is NOT a pipeline operator (e.g., holding company outside pipelines), return 'ULTIMATE'
-5. If this company is itself a top-level parent, return 'ULTIMATE'
-6. If insufficient information, return 'ULTIMATE'
+3. If you find a likely parent from web search, return that name
+4. Only return 'ULTIMATE' if:
+   - Explicitly stated as independent/parent company
+   - No ownership indicators found after thorough analysis
+   - Parent is clearly NOT a pipeline operator
 
-IMPORTANT:
+IMPORTANT - BE LESS CONSERVATIVE:
+- Don't immediately default to 'ULTIMATE' - look for ownership clues
+- Operational relationships often indicate ownership
 - Return the parent company name as it appears in common usage
 - The system will validate it exists in PHMSA dataset
-- If recent acquisition (2024+), note the year in reasoning
-- Be conservative: if unsure or parent not a pipeline operator, return 'ULTIMATE'
+- If you identify a likely parent, state it even if not 100% certain (adjust confidence accordingly)
 
 Return ONLY valid JSON:
 {{
   "parent": "PARENT_COMPANY_NAME or ULTIMATE",
   "confidence": <1-10>,
-  "reasoning": "explanation with any recent changes noted",
+  "reasoning": "explanation citing specific evidence from search results",
   "acquisition_date": "YYYY" or null
 }}
+
+EXAMPLE:
+If search shows "Kiantone Pipeline Corporation continues transport... to United Refining Company"
+→ Consider if United Refining Company might own Kiantone (operational relationship suggests ownership)
+→ Return "parent": "United Refining Company", "confidence": 7, "reasoning": "Search indicates Kiantone operates pipeline delivering to United Refining Company, suggesting ownership relationship"
 """
         
         return prompt
