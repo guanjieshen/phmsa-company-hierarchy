@@ -1,39 +1,67 @@
 # PHMSA Company Hierarchy Analysis
 
-**Agent-based LLM system for identifying corporate parent-subsidiary relationships in PHMSA pipeline operator data**
+**Version 1.0** - LLM-Based Corporate Hierarchy Identification
 
-## 🎯 What This Tool Does
+Automatically identifies parent-subsidiary relationships in PHMSA pipeline operator data using LLM-powered web search.
 
-Uses **Multi-Search + LLM Analysis** with DuckDuckGo to automatically identify corporate parent-subsidiary relationships:
+---
 
-1. **Multi-Search Strategy**: 3 strategic searches per company (basic, parent, recency)
-2. **LLM Analysis**: AI synthesizes all search results to identify ownership
-3. **Recency Validation**: Prioritizes 2024-2026 information for recent acquisitions
-4. **Graph Resolution**: Computes ultimate parents and full ownership chains
+## 🎯 What It Does
 
-**Result:** Accurate corporate hierarchies with confidence scores, detailed reasoning, and recent change flags.
+Analyzes PHMSA companies to identify:
+- Corporate parents (immediate and ultimate)
+- Joint ventures with ownership percentages
+- Primary operators for JVs
+- Recent acquisitions (2024-2026)
+- Full hierarchy chains
 
-## 🚀 Quick Start
+**Constraint**: Parent companies must exist in PHMSA dataset. External parents are captured separately in `LLM_SEARCH_PARENT`.
 
-### 1. Setup in Databricks
+---
 
+## 🔧 How It Works
+
+For each company, the system:
+
+1. **Performs 3 strategic web searches** (DuckDuckGo):
+   - Basic: `"Company Name company"`
+   - Parent: `"Company Name parent owner subsidiary"`
+   - Recency: `"Company Name acquisition merger 2024 2025 2026"`
+
+2. **LLM analyzes** all search results to identify:
+   - Ownership relationships (vs service relationships)
+   - Joint venture partners and operators
+   - Recent ownership changes
+
+3. **Validates** parent exists in PHMSA dataset
+   - If found → returns parent company
+   - If not found → returns "ULTIMATE", stores external parent separately
+
+4. **Builds hierarchy graph** to compute ultimate parents and full chains
+
+---
+
+## 🚀 How to Use
+
+### Setup (Databricks)
+
+**Cell 1**: Install dependencies
 ```python
-# Install dependencies (Cell 1)
-%pip install -U langchain-community langchain-core langchain duckduckgo-search pandas networkx
+%pip install -U langchain-community langchain-core langchain duckduckgo-search ddgs pandas networkx
 dbutils.library.restartPython()
 ```
 
-### 2. Initialize
-
+**Cell 2**: Initialize LLM and search
 ```python
-# Cell 2: Initialize LLM and search
 from langchain_community.chat_models import ChatDatabricks
 from langchain_community.tools import DuckDuckGoSearchResults
 
-llm = ChatDatabricks(endpoint="databricks-claude-sonnet-4-5")
-search_tool = DuckDuckGoSearchResults()
+llm = ChatDatabricks(endpoint="databricks-claude-sonnet-4-5", max_tokens=1000, temperature=0.1)
+search_tool = DuckDuckGoSearchResults(num_results=5)
+```
 
-# Cell 3: Import agent validator
+**Cell 3**: Import package (update path)
+```python
 import sys
 sys.path.append('/Workspace/Repos/YOUR_USERNAME/phmsa-company-hierarchy/')
 from phmsa_hierarchy import AgentLLMValidator, HierarchyGraphBuilder
@@ -42,192 +70,94 @@ llm_validator = AgentLLMValidator(llm, search_tool)
 graph_builder = HierarchyGraphBuilder()
 ```
 
-### 3. Run Analysis
-
+**Cell 4**: Load data (update table name)
 ```python
-# Cell 4: Load your PHMSA data
 companies_df = spark.read.table("your_catalog.your_schema.your_table")
-
-# Cell 7: Process with agent
-results = companies_df.select(find_parent_llm(...)).select("result.*")
-
-# Cell 11: Save results
-results.write.mode("overwrite").saveAsTable("your_output_table")
+companies_df = companies_df.select("OPERATOR_ID", "PARTA2NAMEOFCOMP", "PARTA4STREET", "PARTA4CITY", "PARTA4STATE").distinct()
 ```
 
-**Full notebook:** [`PHMSA_Hierarchy_LLM.ipynb`](PHMSA_Hierarchy_LLM.ipynb)
+**Cells 5-10**: Run analysis
+- Cell 5: Prepare company list
+- Cell 6: Define UDF (update path inside)
+- Cell 7: Run analysis (2-4 hours for 1000 companies)
+- Cell 8: Build hierarchy graph
+- Cell 9: View statistics
+- Cell 10: Review results
 
-## 📊 Example Output
+### Results
 
-| Company | Immediate Parent | Ultimate Parent | Confidence | Recent Change |
-|---------|-----------------|-----------------|------------|---------------|
-| ENBRIDGE ENERGY, LP | ENBRIDGE | ENBRIDGE | 9/10 | No |
-| WILLIAMS PIPELINE CO | WILLIAMS | WILLIAMS | 8/10 | No |
-| ABC PIPELINE LLC | XYZ CORP | XYZ CORP | 7/10 | Yes (2024) |
+After running, you'll have:
+- `parent_mappings_df`: All LLM analysis results
+- `hierarchy_df`: Hierarchy graph with ultimate parents
 
-## 🆕 Key Features (v2.2 - Agent-Based)
+Save as needed:
+```python
+# Save to Unity Catalog
+parent_mappings_df.write.mode("overwrite").saveAsTable("your_output_table")
 
-✅ **Multi-Search Strategy**: 3 comprehensive searches per company (basic, parent, recency)  
-✅ **Automatic Web Grounding**: Real-time search via DuckDuckGo (free, no API key needed)  
-✅ **LLM Synthesis**: AI analyzes all search results together for accurate identification  
-✅ **Implied Ownership Detection**: Catches operational relationships (e.g., "delivers to")  
-✅ **Flexible Name Matching**: Handles name variations and corporate suffixes  
-✅ **Recency Validation**: Prioritizes 2024-2026 ownership info for recent acquisitions  
-✅ **Databricks Serverless**: No caching, fully compatible with serverless compute  
-✅ **Production Ready**: Error handling, logging, quality checks, confidence scores  
+# Or export to file
+parent_mappings_df.toPandas().to_csv("results.csv")
+```
+
+---
+
+## 📊 Output Columns
+
+| Column | Description |
+|--------|-------------|
+| `OPERATOR_ID` | PHMSA operator ID |
+| `COMPANY_NAME` | Pipeline company name |
+| `immediate_parent` | Direct parent (validated in PHMSA) |
+| `LLM_SEARCH_PARENT` | Raw LLM finding (uppercase) |
+| `IS_JV` | Joint venture flag |
+| `JV_PARTNERS` | All JV partners with ownership % |
+| `PRIMARY_OPERATOR` | Who operates the JV |
+| `ultimate_parent` | Top-level parent |
+| `hierarchy_path` | Full chain (e.g., "A → B → C") |
+| `hierarchy_depth` | Levels from top |
+| `CONFIDENCE` | LLM confidence score (1-10) |
+| `REASONING` | LLM explanation with sources |
+| `ACQUISITION_DATE` | Year if recent change |
+| `RECENT_CHANGE` | Boolean flag for 2024-2026 changes |
+
+---
 
 ## 📁 Repository Structure
 
 ```
 phmsa-company-hierarchy/
-├── PHMSA_Hierarchy_LLM.ipynb        # Main production notebook
+├── PHMSA_Hierarchy_LLM.ipynb        # Main notebook
 ├── README.md                         # This file
 ├── requirements.txt                 # Dependencies
-├── sample_phmsa.csv                 # Sample data format
-│
-├── phmsa_hierarchy/                 # Core Python package
-│   ├── agent_validator.py           # Agent-based LLM validator
-│   ├── graph_builder.py             # Hierarchy graph resolution
-│   └── __init__.py                  # Package exports
-│
-└── archive/                         # Previous versions (reference)
-    ├── examples/                    # Test notebooks
-    ├── PHMSA Company HIerarchy.ipynb
-    └── PHMSA_Hierarchy_Hybrid_old.ipynb
+├── sample_phmsa.csv                 # Sample data
+└── phmsa_hierarchy/                 # Python package
+    ├── agent_validator.py           # LLM validator
+    ├── graph_builder.py             # Hierarchy builder
+    └── __init__.py                  # Package init
 ```
-
-## 🔑 Key Capabilities
-
-### Recency Validation (NEW in v1.0)
-
-Handles recent corporate changes:
-- Searches for "2024", "2025", "2026" in web results
-- Flags acquisitions with year: `[RECENT CHANGE 2024 - VERIFY]`
-- Additional search if merger/acquisition keywords detected
-- Returns `acquisition_date` and `recent_change` flag
-
-**Example:**
-```
-Company: ABC Pipeline LLC
-Parent: XYZ Corp
-Reasoning: "Acquired by XYZ Corp in 2024 [RECENT CHANGE 2024 - VERIFY]"
-Acquisition Date: 2024
-Recent Change: True
-```
-
-### Accuracy-First Design
-
-- **Direct LLM search**: AI analyzes web results to identify parents
-- **Recency prioritization**: Focuses on 2024-2026 information
-- **Dataset validation**: Ensures parent exists in PHMSA data
-- **Graph validation**: Detects cycles and inconsistencies
-- **Confidence scoring**: 1-10 scale with detailed reasoning
-
-### Performance
-
-| Companies | Runtime | Cost | Accuracy |
-|-----------|---------|------|----------|
-| <100 | 20-30 min | $6-12 | 93-98% |
-| 100-500 | 60-120 min | $30-60 | 93-98% |
-| 500-1000 | 120-200 min | $60-120 | 93-98% |
-
-*Agent approach is slower due to iterative reasoning but more accurate*
-
-## 🛠️ Technology Stack
-
-- **Python 3.8+**: Core language
-- **Databricks**: Compute platform + LLM hosting
-- **Claude Sonnet 4.5**: LLM for validation
-- **DuckDuckGo Search**: Web search (no API key needed)
-- **LangChain/LangGraph**: LLM orchestration
-- **PySpark**: Distributed processing
-- **Unity Catalog**: Data source + results storage
-
-## 🔧 How It Works
-
-### Multi-Search + LLM Analysis
-
-For each company, the system automatically:
-
-```
-1. Basic Search: "Kiantone Pipeline Corporation company"
-2. Parent Search: "Kiantone Pipeline Corporation parent company owner subsidiary"
-3. Recency Search: "Kiantone Pipeline Corporation acquisition merger 2024 2025 2026"
-
-→ LLM analyzes all 3 search results together
-→ Identifies: "delivers to United Refining Company... subsidiary of..."
-→ Validates: United Refining Company exists in PHMSA dataset
-→ Returns: {"parent": "United Refining Company", "confidence": 9}
-```
-
-**Advantages:**
-- **Comprehensive**: 3 strategic searches capture different aspects
-- **Fast**: Searches run in parallel, no iterative waiting
-- **Consistent**: Predefined strategy, no variability
-- **Compatible**: Works with all LangChain versions
-
-## 📊 Output Format
-
-| Column | Description |
-|--------|-------------|
-| `OPERATOR_ID` | PHMSA operator ID |
-| `ORIGINAL_NAME` | Company name |
-| `immediate_parent` | Direct parent company |
-| `ultimate_parent` | Top-level parent |
-| `hierarchy_path` | Full chain (e.g., "A → B → C") |
-| `hierarchy_depth` | Levels from top |
-| `CONFIDENCE` | Agent confidence (1-10) |
-| `REASONING` | Agent's explanation |
-| `ACQUISITION_DATE` | Year if recent (2024+) |
-| `RECENT_CHANGE` | Boolean flag |
-
-## 🐛 Troubleshooting
-
-**"Module not found: phmsa_hierarchy"**
-- Update Cell 3 path: `sys.path.append('/Workspace/Repos/YOUR_USERNAME/phmsa-company-hierarchy/')`
-
-**Agent is too verbose**
-- Set `verbose=False` in `phmsa_hierarchy/agent_validator.py` line 121
-
-**Too many false "ULTIMATE"**
-- Check agent reasoning in output
-- Agent may be too conservative
-- Verify companies exist in PHMSA dataset
-
-## 🔄 Version History
-
-**v2.2.0** (January 2026) - Current
-- ✨ **Agent-based approach**: LangChain ReAct agents with automatic search
-- ✨ **Dynamic reasoning**: Agent decides when/how to search iteratively
-- ✨ **Gemini-like grounding**: Similar to Google's automatic web grounding
-- ✨ **Transparent process**: Verbose mode shows full agent reasoning
-- ✨ 93-98% accuracy (improved from 92-97%)
-- ⚠️ +50% cost, +50% runtime vs v2.1 (more LLM calls for reasoning)
-
-**v2.1.0** (January 2026)
-- Multi-strategy search: 2-3 searches per company
-- Implied ownership detection: Catches "delivers to" relationships
-- Flexible name matching
-- 92-97% accuracy
-
-**v2.0.0** (January 2026)
-- Pure LLM approach (removed fuzzy matching)
-- Enhanced recency validation (2024-2026 focus)
-- 90-95% accuracy
-
-**v1.0.0** (January 2026) - Archived
-- Hybrid fuzzy + LLM approach
-- 85-95% accuracy
-- See `archive/PHMSA_Hierarchy_Hybrid_old.ipynb`
-
-## 📄 License
-
-Internal use only - Enbridge
 
 ---
 
-**License**: Internal use only  
-**Version**: 2.2.0 (Agent-Based)  
-**Updated**: January 2026
+## ⚡ Quick Example
 
+**Input**: "Wolverine Pipe Line Company"
 
+**Process**:
+- Search finds: "owned by ExxonMobil, serves Energy Transfer"
+- LLM identifies: ExxonMobil = owner, Energy Transfer = customer
+- Validates: ExxonMobil exists in PHMSA
+
+**Output**:
+```
+immediate_parent: "EXXONMOBIL"
+LLM_SEARCH_PARENT: "EXXONMOBIL CORPORATION"
+IS_JV: false
+CONFIDENCE: 9
+REASONING: "Owned by ExxonMobil (acquired 2013). Energy Transfer is a customer."
+```
+
+---
+
+**Version**: 1.0.0  
+**Runtime**: ~2-4 hours for 1000 companies  
+**Last Updated**: January 2026
