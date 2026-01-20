@@ -119,22 +119,36 @@ CRITICAL INSTRUCTIONS:
    - "delivers to [Company]" (may indicate ownership)
    - "[Company]'s [this pipeline/operation]"
 
-2. **Prioritize RECENT information (2024-2026)**:
+2. **DISTINGUISH Ownership vs Service Relationships**:
+   - **Ownership**: "owned by", "subsidiary of", "acquired by", "parent company", "joint venture of"
+   - **Service only**: "serves", "transports for", "customer", "shipper", "delivers to" (without ownership language)
+   - If a company "serves" or "transports for" others but is "owned by" one company, the owner is the parent
+   - Example: "Wolverine is owned by ExxonMobil but serves Energy Transfer" → Parent is ExxonMobil
+
+3. **IDENTIFY Joint Ventures (JVs)**:
+   - Look for: "joint venture", "JV", "owned by [Company A] and [Company B]", "partnership between"
+   - Look for ownership percentages: "50-50 JV", "owned 60% by X and 40% by Y"
+   - If multiple owners found, set is_jv=true and list all partners in jv_partners
+   - For parent, return the majority owner or first listed if equal ownership
+   - **IDENTIFY PRIMARY OPERATOR**: Look for who manages/operates the JV:
+     * "operated by [Company]"
+     * "[Company] operates the pipeline"
+     * "[Company] is the operator"
+     * "managed by [Company]"
+     * If one of the JV partners operates it, note that in primary_operator
+     * If no operator mentioned, set primary_operator to null
+
+4. **Prioritize RECENT information (2024-2026)**:
    - Look for recent acquisitions, mergers, sales
    - If ownership changed recently, use the CURRENT parent
    - Note the year if you find recent changes
 
-3. **Return the ACTUAL parent company name you find**:
+5. **Return the ACTUAL parent company name you find**:
    - Return the exact name of the parent as it appears in search results
    - Do NOT validate against the PHMSA list - we'll do that separately
    - Be precise with company names (e.g., "PBF Energy Inc." not "PBF Energy")
 
-4. **Be thorough but not overly conservative**:
-   - Don't immediately default to ULTIMATE
-   - Look for IMPLIED ownership (e.g., operational relationships)
-   - Consider business relationships that suggest ownership
-
-5. **Return "ULTIMATE" ONLY if**:
+6. **Return "ULTIMATE" ONLY if**:
    - Company is truly independent (top-level parent)
    - No clear parent found in any of the search results
    - Search results explicitly state "independent" or "publicly traded with no parent"
@@ -146,8 +160,16 @@ REQUIRED OUTPUT FORMAT (JSON only, no other text):
   "parent": "ACTUAL_PARENT_COMPANY_NAME or ULTIMATE",
   "confidence": 1-10,
   "reasoning": "Brief explanation citing specific evidence from search results",
-  "acquisition_date": "YYYY or null"
+  "acquisition_date": "YYYY or null",
+  "is_jv": true/false,
+  "jv_partners": ["Company A", "Company B"] or null,
+  "primary_operator": "Company Name or null"
 }}
+
+EXAMPLES:
+- Single owner: {{"parent": "ExxonMobil", "is_jv": false, "jv_partners": null, "primary_operator": null}}
+- JV with operator: {{"parent": "Shell Oil", "is_jv": true, "jv_partners": ["Shell Oil (50%)", "Chevron (50%)"], "primary_operator": "Shell Oil"}}
+- JV no operator info: {{"parent": "BP", "is_jv": true, "jv_partners": ["BP (60%)", "Total (40%)"], "primary_operator": null}}
 
 Return ONLY the JSON object, nothing else."""
 
@@ -202,8 +224,8 @@ Return ONLY the JSON object, nothing else."""
             # Parse JSON from LLM output
             parsed = self._parse_llm_response(llm_output)
             
-            # Store the original LLM-identified parent before validation
-            llm_raw_parent = parsed['parent']
+            # Store the original LLM-identified parent before validation (uppercase)
+            llm_raw_parent = parsed['parent'].upper() if parsed['parent'] else parsed['parent']
             
             # Validate parent exists in PHMSA dataset
             if parsed['parent'] not in ["ULTIMATE", "UNKNOWN", "ERROR"]:
@@ -265,21 +287,35 @@ Return ONLY the JSON object, nothing else."""
                 "reasoning": f"LLM analysis failed: {str(e)}",
                 "acquisition_date": None,
                 "recent_change": False,
-                "llm_search_parent": "ERROR"
+                "llm_search_parent": "ERROR",
+                "is_jv": False,
+                "jv_partners": None,
+                "primary_operator": None
             }
     
     def _parse_llm_response(self, response: str) -> Dict:
         """Parse JSON from LLM's response"""
         try:
-            # Try to find JSON in response
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response, re.DOTALL)
+            # Try to find JSON in response (including nested arrays)
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}|[^{}]*\[[^\]]*\][^{}]*)*\}', response, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group(0))
+                
+                # Parse JV partners if present
+                jv_partners = data.get("jv_partners")
+                if jv_partners and isinstance(jv_partners, list):
+                    jv_partners = jv_partners  # Keep as list
+                else:
+                    jv_partners = None
+                
                 return {
                     "parent": data.get("parent", "ULTIMATE"),
                     "confidence": int(data.get("confidence", 5)),
                     "reasoning": data.get("reasoning", "No reasoning provided"),
-                    "acquisition_date": data.get("acquisition_date")
+                    "acquisition_date": data.get("acquisition_date"),
+                    "is_jv": data.get("is_jv", False),
+                    "jv_partners": jv_partners,
+                    "primary_operator": data.get("primary_operator")
                 }
             else:
                 # Fallback: try to extract info from text
@@ -294,7 +330,10 @@ Return ONLY the JSON object, nothing else."""
                     "parent": parent,
                     "confidence": 5,
                     "reasoning": f"Extracted from text: {response[:300]}",
-                    "acquisition_date": None
+                    "acquisition_date": None,
+                    "is_jv": False,
+                    "jv_partners": None,
+                    "primary_operator": None
                 }
         except Exception as e:
             return {
