@@ -4,10 +4,10 @@
 
 ## 🎯 What This Tool Does
 
-Uses **LangChain ReAct agents** with DuckDuckGo search to automatically identify corporate parent-subsidiary relationships:
+Uses **Multi-Search + LLM Analysis** with DuckDuckGo to automatically identify corporate parent-subsidiary relationships:
 
-1. **Agent-Based Search**: AI agent automatically decides when and how to search the web
-2. **Dynamic Reasoning**: Agent formulates queries iteratively based on results
+1. **Multi-Search Strategy**: 3 strategic searches per company (basic, parent, recency)
+2. **LLM Analysis**: AI synthesizes all search results to identify ownership
 3. **Recency Validation**: Prioritizes 2024-2026 information for recent acquisitions
 4. **Graph Resolution**: Computes ultimate parents and full ownership chains
 
@@ -67,16 +67,14 @@ results.write.mode("overwrite").saveAsTable("your_output_table")
 
 ## 🆕 Key Features (v2.2 - Agent-Based)
 
-✅ **Agent-Based Search**: LangChain ReAct agents automatically decide when/how to search  
-✅ **Dynamic Query Generation**: Agent formulates queries based on results  
-✅ **Iterative Reasoning**: Can perform multiple searches if initial results insufficient  
-✅ **Gemini-Like Grounding**: Similar to Google's automatic grounding with search  
-✅ **Transparent Reasoning**: Verbose mode shows full Thought → Action → Observation process  
+✅ **Multi-Search Strategy**: 3 comprehensive searches per company (basic, parent, recency)  
+✅ **Automatic Web Grounding**: Real-time search via DuckDuckGo (free, no API key needed)  
+✅ **LLM Synthesis**: AI analyzes all search results together for accurate identification  
 ✅ **Implied Ownership Detection**: Catches operational relationships (e.g., "delivers to")  
-✅ **Flexible Name Matching**: Handles name variations  
-✅ **Recency Validation**: Prioritizes 2024-2026 ownership info  
-✅ **Databricks Native**: Unity Catalog integration  
-✅ **Production Ready**: Error handling, logging, quality checks  
+✅ **Flexible Name Matching**: Handles name variations and corporate suffixes  
+✅ **Recency Validation**: Prioritizes 2024-2026 ownership info for recent acquisitions  
+✅ **Databricks Serverless**: No caching, fully compatible with serverless compute  
+✅ **Production Ready**: Error handling, logging, quality checks, confidence scores  
 
 ## 📁 Repository Structure
 
@@ -147,24 +145,26 @@ Recent Change: True
 
 ## 🔧 How It Works
 
-### Agent ReAct Loop
+### Multi-Search + LLM Analysis
+
+For each company, the system automatically:
 
 ```
-1. Thought: "I need to find the parent company"
-2. Action: web_search("Kiantone Pipeline Corporation")
-3. Observation: "delivers to United Refining Company..."
-4. Thought: "Suggests ownership, need confirmation"
-5. Action: web_search("Kiantone parent owner")
-6. Observation: "subsidiary of United Refining Company..."
-7. Thought: "I have clear evidence"
-8. Final Answer: {"parent": "United Refining Company", "confidence": 9}
+1. Basic Search: "Kiantone Pipeline Corporation company"
+2. Parent Search: "Kiantone Pipeline Corporation parent company owner subsidiary"
+3. Recency Search: "Kiantone Pipeline Corporation acquisition merger 2024 2025 2026"
+
+→ LLM analyzes all 3 search results together
+→ Identifies: "delivers to United Refining Company... subsidiary of..."
+→ Validates: United Refining Company exists in PHMSA dataset
+→ Returns: {"parent": "United Refining Company", "confidence": 9}
 ```
 
-The agent automatically:
-- Decides when to search
-- Formulates queries dynamically
-- Iterates until confident
-- Validates parent exists in PHMSA dataset
+**Advantages:**
+- **Comprehensive**: 3 strategic searches capture different aspects
+- **Fast**: Searches run in parallel, no iterative waiting
+- **Consistent**: Predefined strategy, no variability
+- **Compatible**: Works with all LangChain versions
 
 ## 📊 Output Format
 
