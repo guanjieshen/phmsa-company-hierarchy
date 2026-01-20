@@ -200,6 +200,9 @@ Return ONLY the JSON object, nothing else."""
             # Parse JSON from LLM output
             parsed = self._parse_llm_response(llm_output)
             
+            # Store the original LLM-identified parent before validation
+            llm_raw_parent = parsed['parent']
+            
             # Validate parent exists in PHMSA dataset
             if parsed['parent'] not in ["ULTIMATE", "UNKNOWN", "ERROR"]:
                 parent_found = False
@@ -232,6 +235,9 @@ Return ONLY the JSON object, nothing else."""
                     parsed['parent'] = "ULTIMATE"
                     parsed['confidence'] = max(1, parsed['confidence'] - 3)
             
+            # Add the raw LLM parent to the result
+            parsed['llm_search_parent'] = llm_raw_parent
+            
             # Add search metadata
             parsed['reasoning'] += f" [{self.search_count} searches performed]"
             
@@ -256,7 +262,8 @@ Return ONLY the JSON object, nothing else."""
                 "confidence": 0,
                 "reasoning": f"LLM analysis failed: {str(e)}",
                 "acquisition_date": None,
-                "recent_change": False
+                "recent_change": False,
+                "llm_search_parent": "ERROR"
             }
     
     def _parse_llm_response(self, response: str) -> Dict:
