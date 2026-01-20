@@ -4,7 +4,10 @@
 # Core dependencies
 langgraph>=0.0.25
 langchain-community>=0.0.20
+langchain-core>=0.1.23
+langchain>=0.1.0
 duckduckgo-search>=4.0.0
+ddgs
 pandas>=1.5.0
 
 # Databricks-specific (pre-installed, listed for reference)
