@@ -104,7 +104,7 @@ TASK: Determine the immediate corporate parent of the company "{company_name}".
 COMPANY INFORMATION:
 {context_str}
 
-PHMSA DATASET COMPANIES (The parent MUST be one of these exact names):
+PHMSA DATASET COMPANIES (for reference - validation will be done separately):
 {companies_str}
 
 WEB SEARCH RESULTS (3 strategic searches performed):
@@ -124,24 +124,26 @@ CRITICAL INSTRUCTIONS:
    - If ownership changed recently, use the CURRENT parent
    - Note the year if you find recent changes
 
-3. **Validate parent exists in PHMSA dataset**:
-   - The parent MUST be in the companies list above
-   - Match by name (case-insensitive, ignore punctuation differences)
-   - If parent found but not in list → return "ULTIMATE"
+3. **Return the ACTUAL parent company name you find**:
+   - Return the exact name of the parent as it appears in search results
+   - Do NOT validate against the PHMSA list - we'll do that separately
+   - Be precise with company names (e.g., "PBF Energy Inc." not "PBF Energy")
 
 4. **Be thorough but not overly conservative**:
    - Don't immediately default to ULTIMATE
    - Look for IMPLIED ownership (e.g., operational relationships)
    - Consider business relationships that suggest ownership
 
-5. **Return ULTIMATE if**:
-   - Company is truly independent
-   - No clear parent found in searches
-   - Parent exists but not in PHMSA dataset
+5. **Return "ULTIMATE" ONLY if**:
+   - Company is truly independent (top-level parent)
+   - No clear parent found in any of the search results
+   - Search results explicitly state "independent" or "publicly traded with no parent"
+
+IMPORTANT: Return the parent company name as you find it in web searches, even if it's not in the PHMSA list above. We will validate separately.
 
 REQUIRED OUTPUT FORMAT (JSON only, no other text):
 {{
-  "parent": "EXACT_COMPANY_NAME or ULTIMATE",
+  "parent": "ACTUAL_PARENT_COMPANY_NAME or ULTIMATE",
   "confidence": 1-10,
   "reasoning": "Brief explanation citing specific evidence from search results",
   "acquisition_date": "YYYY or null"
